@@ -10,10 +10,7 @@
 #include <GL/glut.h>
 
 #define PI 3.141592653589793
-#define REFRESHMS 5
-
-#define VIEWWIDTH 500
-#define VIEWHEIGHT 500
+#define REFRESHMS 1
 
 #define MINX -10.0f
 #define MINY -10.0f
@@ -23,10 +20,21 @@
 #define MAXY 10.0f
 #define MAXZ 10.0f
 
+#define OFFVIEW 0.3f
+#define VIEWRATIO 1 - OFFVIEW
+
+enum view {
+	PERSPECTIVE,
+	ORTHOGRAPH
+} viewmode;
+
 float rspeedx, rspeedy, rspeedz,
-	rcurx, rcury, rcurz;
-GLenum mode;
+	rcurx, rcury, rcurz,
+	tranx, trany, tranz,
+	shearx, sheary, shearz;
+GLenum polymode;
 bool axis;
+unsigned viewwidth, viewheight;
 
 void drawAxes(void);
 void drawHouse();
@@ -36,6 +44,27 @@ void resize(GLsizei width, GLsizei height);
 void keypress(unsigned char key, int x, int y);
 void timer(int val);
 
+void timer(int val)
+{
+	rcurx += (float)rspeedx * 18.0f / PI / 30.0f;
+	if(rcurx > 360)
+		rcurx -= 360;
+	else if(rcurx < 0)
+		rcurx += 360;
+	rcury += (float)rspeedy * 18.0f / PI / 30.0f;
+	if(rcury > 360)
+		rcury -= 360;
+	else if(rcury < 0)
+		rcury += 360;
+	rcurz += (float)rspeedz * 18.0f / PI / 30.0f;
+	if(rcurz > 360)
+		rcurz -= 360;
+	else if(rcurz < 0)
+		rcurz += 360;
+	glutPostRedisplay();
+	glutTimerFunc(REFRESHMS, timer, val + 1);
+}
+
 void display(void)
 {
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -44,8 +73,12 @@ void display(void)
  	gluLookAt(-5.0f, 5.0f, 4.0f,
 						0.0f, 0.0f, 0.0f,
 						0.0f, 0.0f, 1.0f);
-	//	if(axis)
+	if(axis)
 		drawAxes();
+	glRotatef(rcurx, 1.0f, 0.0f, 0.0f);
+	glRotatef(rcury, 0.0f, 1.0f, 0.0f);
+	glRotatef(rcurz, 0.0f, 0.0f, 1.0f);
+	glTranslatef(tranx, trany, tranz);
 	drawHouse();
 	glFlush();
  	glutSwapBuffers();
@@ -64,10 +97,9 @@ void drawAxes(void)
 	glEnd();
 }
 
-#define FACECOUNT 7
-
 void drawHouse(void)
 {
+#define FACECOUNT 7
 	/* Define the coordinates to be used,
 	 * then create the face matrices from them.
 	 * Points are stored in a row of x, then a row of y, then a row of z */
@@ -124,11 +156,11 @@ void drawHouse(void)
 		{0.1f, 0.5f, 0.8f},
 		{0.5f, 0.1f, 0.8f}};
 	unsigned vcount[FACECOUNT] = {5, 5, 4, 4, 4, 4, 4};
-	for(int i = FACECOUNT - 1; i; i--) {
+	for(int i = 0; i < FACECOUNT; i++) {
 		glColor3f(colors[i].r,
 							colors[i].g,
 							colors[i].b);
-		glBegin(mode);
+		glBegin(polymode);
 		for(int j = 0; j < vcount[i]; j++) {
 			glVertex3f(vertices[i][j].x, vertices[i][j].y, vertices[i][j].z);
 		}
@@ -136,25 +168,62 @@ void drawHouse(void)
 	}
 }
 
-void timer(int val)
+void updateView()
 {
-	glutPostRedisplay();
-	glutTimerFunc(REFRESHMS, timer, val + 1);
+	glMatrixMode(GL_PROJECTION);
+	glLoadIdentity();
+	if(viewmode == ORTHOGRAPH)
+		glOrtho(MINX, MAXX, MINY, MAXY, 0.0f, 30.0f);
+	else if(viewmode == PERSPECTIVE)
+		glFrustum(MINX / 10, MAXX / 10, MINY / 10, MAXY / 10, 1.0f, 30.0f);
+	glMatrixMode(GL_MODELVIEW);
 }
 
 void resize(GLsizei width, GLsizei height)
 {
 	glViewport(0, 0, width, height);
-	glMatrixMode(GL_PROJECTION);
-	glLoadIdentity();
-	glOrtho(MINX, MAXX, MINY, MAXY, 0.0f, 30.0f);
-	glMatrixMode(GL_MODELVIEW);
+	updateView();
 }
 
-void mpress(int btn, int state, int x, int y)
+void mpress(int btn, int state, int mxp, int myp)
 {
-	if(btn == GLUT_LEFT_BUTTON &&
-		 state == GLUT_DOWN) {
+	if(state == GLUT_DOWN) {
+		float x, y;
+		float factor = viewwidth * viewheight;
+		x = (float)-mxp * 2 / viewwidth + 1;
+		y = (float)-myp * 2 / viewheight + 1;
+		if(fabs(x) > VIEWRATIO || fabs(y) > VIEWRATIO) {
+		}
+		else if(btn == GLUT_LEFT_BUTTON) {
+			if(y > 0.0f) {
+				if(x < 0.0f && rspeedy < 10)
+					rspeedy++;
+				if(x >= 0.0f && rspeedx < 10)
+					rspeedx++;
+			}
+			if(y < -fabs(x) && rspeedz < 10) {
+				rspeedz++;
+			}
+			if(y >= -fabs(x) && x < 0.0f && rspeedy < 10)
+				rspeedy++;
+			if(y >= -fabs(x) && x >= 0.0f && rspeedx < 10)
+				rspeedx++;
+		}
+		else if(btn == GLUT_RIGHT_BUTTON) {
+			if(y > 0.0f) {
+				if(x < 0.0f && rspeedy > -10)
+					rspeedy--;
+				if(x >= 0.0f && rspeedx > -10)
+					rspeedx--;
+			}
+			if(y < -fabs(x) && rspeedz > -10) {
+				rspeedz--;
+			}
+			if(y >= -fabs(x) && x < 0.0f && rspeedy > -10)
+				rspeedy--;
+			if(y >= -fabs(x) && x >= 0.0f && rspeedx > -10)
+				rspeedx--;
+		}
 	}
 }
 
@@ -166,14 +235,17 @@ void keypress(unsigned char key, int x, int y)
 		axis = !axis;
 		break;
 	case 'f':
-		if(mode == GL_POLYGON)
-			mode = GL_LINE_LOOP;
+		if(polymode == GL_POLYGON)
+			polymode = GL_LINE_LOOP;
 		else
-			mode = GL_POLYGON;
+			polymode = GL_POLYGON;
 		break;
 	case 'q':
 		exit(0);
 	case 'r':
+		rcurx = 0;
+		rcury = 0;
+		rcurz = 0;
 		break;
 	case 's':
 		rspeedx = 0;
@@ -183,9 +255,17 @@ void keypress(unsigned char key, int x, int y)
 	}
 }
 
+void changeView(enum view newmode)
+{
+	viewmode = newmode;
+	updateView();
+}
+
+void nil(int n) {}
+
 int main(int argc, char **argv)
 {
-	mode = GL_POLYGON;
+	polymode = GL_POLYGON;
 	axis = false;
 	rspeedx = 0;
 	rspeedy = 0;
@@ -193,19 +273,34 @@ int main(int argc, char **argv)
 	rcurx = 0;
 	rcury = 0;
 	rcurz = 0;
+	viewwidth = 500;
+	viewheight = 500;
+	tranx = 5.0;
+	trany = 0;
+	tranz = 0;
+
 	glutInit(&argc, argv);
 	glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGBA | GLUT_DEPTH);
 	glutInitWindowPosition(10, 10);
-	glutInitWindowSize(VIEWWIDTH,
-										 VIEWHEIGHT);
+	glutInitWindowSize(viewwidth,
+										 viewheight);
 	glutCreateWindow("Program 3");
 	glutDisplayFunc(display);
 	glutReshapeFunc(resize);
 	glutMouseFunc(mpress);
 	glutKeyboardFunc(keypress);
 	glutTimerFunc(REFRESHMS, timer, 0);
+
+	int view, solid, axes, trans;
+	view = glutCreateMenu((void (*)(int))&changeView);
+	glutAddMenuEntry("Perspective", PERSPECTIVE);
+	glutAddMenuEntry("Orthographic", ORTHOGRAPH);
+
+	glutAttachMenu(GLUT_MIDDLE_BUTTON);
+
 	glPointSize(5);
 	glEnable(GL_DEPTH_TEST);
+	glDisable(GL_CULL_FACE);
 	glutMainLoop();
   return 0;
 }
