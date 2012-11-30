@@ -52,7 +52,7 @@ float rspeedx, rspeedy, rspeedz,
 bool axis;
 unsigned viewwidth, viewheight;
 
-struct image *bricks;
+struct image *bricks, *shingles;
 
 void drawAxes(void);
 void drawMatrixType(void);
@@ -101,6 +101,8 @@ void display(void)
 
 	glMatrixMode(GL_MODELVIEW);
 	glLoadIdentity();
+	/* Ensure the axes and HUD text are colored correctly */
+	glDisable(GL_TEXTURE_2D);
 
 	/* Draw our HUD contents */
 	drawMatrixType();
@@ -116,6 +118,9 @@ void display(void)
 						0.0f, 0.0f, 1.0f);
 	if(axis)
 		drawAxes();
+	/* Reenable textures for the house */
+	glEnable(GL_TEXTURE_2D);
+
 	glRotatef(rcurx, 1.0f, 0.0f, 0.0f);
 	glRotatef(rcury, 0.0f, 1.0f, 0.0f);
 	glRotatef(rcurz, 0.0f, 0.0f, 1.0f);
@@ -269,18 +274,22 @@ void drawHouse(void)
 		 {1.0f, 0.0f},
 		 {0.67f, 0.0f}},
 		//Farthest roof
-		{{0.67f, 0.15f},
-		 {1.0f, 0.15f},
+		{{0.67f, 0.3f},
+		 {1.0f, 0.3f},
 		 {1.0f, 0.0f},
 		 {0.67f, 0.0f}},
 	};
 	unsigned vcount[FACECOUNT] = {5, 5, 4, 4, 4, 4, 4};
+	if(bricks && bricks->texture)
+		glBindTexture(GL_TEXTURE_2D, bricks->texture);
 	for(int i = 0; i < FACECOUNT; i++) {
 		if(!bricks || !bricks->texture) {
 			glColor3f(colors[i].r,
 								colors[i].g,
 								colors[i].b);
 		}
+		if(i == 5 && shingles && shingles->texture)
+			glBindTexture(GL_TEXTURE_2D, shingles->texture);
 		glBegin(GL_POLYGON);
 		for(int j = 0; j < vcount[i]; j++) {
 			if(bricks && bricks->texture) {
@@ -541,6 +550,10 @@ void quit(int n)
 	glDeleteTextures(1, &bricks->texture);
 	free(bricks->data);
 	free(bricks);
+
+	glDeleteTextures(1, &shingles->texture);
+	free(shingles->data);
+	free(shingles);
 	exit(0);
 }
 
@@ -583,6 +596,11 @@ void initglobs(void) {
 	if(!bricks) {
 		printf("Could not load bricks.png!\n");
 	}
+
+	shingles = readPNG("shingles.png");
+	if(!shingles) {
+		printf("Could not load shingles.png!\n");
+	}
 }
 
 int main(int argc, char **argv)
@@ -622,15 +640,17 @@ int main(int argc, char **argv)
 						GL_MODULATE);
 	if(bricks) {
  		createTexture(bricks);
-		printf("Texture: %d\n", bricks->texture);
+		printf("Brick Texture: %d\n", bricks->texture);
+	}
+
+	if(shingles) {
+ 		createTexture(shingles);
+		printf("Shingle Texture: %d\n", shingles->texture);
 	}
 	glDisable(GL_CULL_FACE);
 	glutMainLoop();
 	/* Cleanup */
-	glDeleteTextures(1, &bricks->texture);
-	free(bricks->data);
-	free(bricks);
-  return 0;
+	quit(0);
 }
 
 void createMenus(void)
