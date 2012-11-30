@@ -25,19 +25,34 @@
 
 enum view {
 	PERSPECTIVE,
-	ORTHOGRAPH
+	ORTHOGRAPH,
+	CUSTOM_ORTHO,
+	CUSTOM_PROJ
 } viewmode;
+
+struct vector {
+	float x, y, z, w;
+} viewmtx[4], shearmtx[4];
+
+enum shearplanes {
+	XYPLANE = 0,
+	XZPLANE = 1,
+	YXPLANE = 2,
+	YZPLANE = 3,
+	ZXPLANE = 4,
+	ZYPLANE = 5
+};
 
 float rspeedx, rspeedy, rspeedz,
 	rcurx, rcury, rcurz,
-	tranx, trany, tranz,
-	shearx, sheary, shearz;
-GLenum polymode;
+	tran[3], scale[3], shear[3];
 bool axis;
 unsigned viewwidth, viewheight;
 
 void drawAxes(void);
-void drawHouse();
+void drawHouse(void);
+void resetHouse(void);
+void initglobs(void);
 void display(void);
 void mpress(int btn, int state, int x, int y);
 void resize(GLsizei width, GLsizei height);
@@ -78,7 +93,9 @@ void display(void)
 	glRotatef(rcurx, 1.0f, 0.0f, 0.0f);
 	glRotatef(rcury, 0.0f, 1.0f, 0.0f);
 	glRotatef(rcurz, 0.0f, 0.0f, 1.0f);
-	glTranslatef(tranx, trany, tranz);
+	glMultMatrixf((GLfloat *)shearmtx);
+	glTranslatef(tran[0], tran[1], tran[2]);
+	glScalef(scale[0], scale[1], scale[2]);
 	drawHouse();
 	glFlush();
  	glutSwapBuffers();
@@ -95,6 +112,26 @@ void drawAxes(void)
 	glVertex3f(0.0f, 0.0f, MINZ);
 	glVertex3f(0.0f, 0.0f, MAXZ);
 	glEnd();
+
+	glPushMatrix();
+	float tranRatio = 0.5f;
+	glTranslatef(MAXX * tranRatio, 0.0f, 0.0f);
+	glRasterPos2i(0, 0);
+	glutBitmapCharacter(GLUT_BITMAP_9_BY_15, 'X');
+	glTranslatef(-MAXX * tranRatio, MAXY * tranRatio, 0.0f);
+	glRasterPos2i(0, 0);
+	glutBitmapCharacter(GLUT_BITMAP_9_BY_15, 'Y');
+	glTranslatef(0.0f, -MAXY * tranRatio, MAXZ * tranRatio);
+	glRasterPos2i(0, 0);
+	glutBitmapCharacter(GLUT_BITMAP_9_BY_15, 'Z');
+
+	glLoadIdentity();
+	glTranslatef(MINX * tranRatio, MAXY * tranRatio, 0.0f);
+	glRasterPos2i(0, 0);
+	char *mtxname[] = {"Projection", "Orthographic", "Custom"};
+	for(int i = 0; mtxname[viewmode][i]; i++)
+		glutBitmapCharacter(GLUT_BITMAP_9_BY_15, mtxname[viewmode][i]);
+	glPopMatrix();
 }
 
 void drawHouse(void)
@@ -103,9 +140,7 @@ void drawHouse(void)
 	/* Define the coordinates to be used,
 	 * then create the face matrices from them.
 	 * Points are stored in a row of x, then a row of y, then a row of z */
-	struct {
-		float x, y, z;
-	} vertices[FACECOUNT][5] = {
+	struct vector vertices[FACECOUNT][5] = {
 		// x      y      z
 		//Closest 5 vertex side
 		{{ 0.0f, -3.0f,  1.0f},
@@ -160,9 +195,9 @@ void drawHouse(void)
 		glColor3f(colors[i].r,
 							colors[i].g,
 							colors[i].b);
-		glBegin(polymode);
+		glBegin(GL_POLYGON);
 		for(int j = 0; j < vcount[i]; j++) {
-			glVertex3f(vertices[i][j].x, vertices[i][j].y, vertices[i][j].z);
+			glVertex3fv((GLfloat *)&vertices[i][j]);
 		}
 		glEnd();
 	}
@@ -172,10 +207,52 @@ void updateView()
 {
 	glMatrixMode(GL_PROJECTION);
 	glLoadIdentity();
-	if(viewmode == ORTHOGRAPH)
-		glOrtho(MINX, MAXX, MINY, MAXY, 0.0f, 30.0f);
-	else if(viewmode == PERSPECTIVE)
+	if(viewmode == ORTHOGRAPH) {
+		glOrtho(MINX, MAXX, MINY, MAXY, -5.0f, 30.0f);
+		struct vector v[4];
+		glGetFloatv(GL_PROJECTION_MATRIX, &v);
+		
+		for(int i = 0; i < 4; i++)
+			printf("%10.7f ", v[i].x);
+		printf("\n");
+
+		for(int i = 0; i < 4; i++)
+			printf("%10.7f ", v[i].y);
+		printf("\n");
+		
+		for(int i = 0; i < 4; i++)
+			printf("%10.7f ", v[i].z);
+		printf("\n");
+		
+		for(int i = 0; i < 4; i++)
+			printf("%10.7f ", v[i].w);
+		printf("\n");
+		
+	}
+	else if(viewmode == PERSPECTIVE) {
 		glFrustum(MINX / 10, MAXX / 10, MINY / 10, MAXY / 10, 1.0f, 30.0f);
+		struct vector v[4];
+		glGetFloatv(GL_PROJECTION_MATRIX, &v);
+		
+		for(int i = 0; i < 4; i++)
+			printf("%10.7f ", v[i].x);
+		printf("\n");
+
+		for(int i = 0; i < 4; i++)
+			printf("%10.7f ", v[i].y);
+		printf("\n");
+		
+		for(int i = 0; i < 4; i++)
+			printf("%10.7f ", v[i].z);
+		printf("\n");
+		
+		for(int i = 0; i < 4; i++)
+			printf("%10.7f ", v[i].w);
+		printf("\n");
+		
+	}
+	else
+		glLoadMatrixf((float *)viewmtx);
 	glMatrixMode(GL_MODELVIEW);
 }
 
@@ -189,7 +266,6 @@ void mpress(int btn, int state, int mxp, int myp)
 {
 	if(state == GLUT_DOWN) {
 		float x, y;
-		float factor = viewwidth * viewheight;
 		x = (float)-mxp * 2 / viewwidth + 1;
 		y = (float)-myp * 2 / viewheight + 1;
 		if(fabs(x) > VIEWRATIO || fabs(y) > VIEWRATIO) {
@@ -234,18 +310,10 @@ void keypress(unsigned char key, int x, int y)
 	case 'a':
 		axis = !axis;
 		break;
-	case 'f':
-		if(polymode == GL_POLYGON)
-			polymode = GL_LINE_LOOP;
-		else
-			polymode = GL_POLYGON;
-		break;
 	case 'q':
 		exit(0);
 	case 'r':
-		rcurx = 0;
-		rcury = 0;
-		rcurz = 0;
+		resetHouse();
 		break;
 	case 's':
 		rspeedx = 0;
@@ -255,30 +323,189 @@ void keypress(unsigned char key, int x, int y)
 	}
 }
 
+void showAxes(int on)
+{
+	if(on == -1)
+		axis = !axis;
+	else if(on)
+		axis = 1;
+	else
+		axis = 0;
+}
+
 void changeView(enum view newmode)
 {
 	viewmode = newmode;
+	if(viewmode == CUSTOM_ORTHO || viewmode == CUSTOM_PROJ) {
+		float top, bottom, right, left, near, far;
+		printf("Left: ");
+		scanf("%f", &left);
+		printf("Right: ");
+		scanf("%f", &right);
+
+		printf("Bottom: ");
+		scanf("%f", &bottom);
+		printf("Top: ");
+		scanf("%f", &top);
+
+		printf("Near: ");
+		scanf("%f", &near);
+		printf("Far: ");
+		scanf("%f", &far);
+		near = fabs(near);
+		far = fabs(far);
+
+		if(viewmode == CUSTOM_ORTHO) {
+			viewmtx[0].x = 2 / (right - left);
+			viewmtx[1].x = 0;
+			viewmtx[2].x = 0;
+			viewmtx[3].x = -(right + left) / (right - left);
+
+			viewmtx[0].y = 0;
+			viewmtx[1].y = 2 / (top - bottom);
+			viewmtx[2].y = 0;
+			viewmtx[3].y = -(top + bottom) / (top - bottom);
+
+			viewmtx[0].z = 0;
+			viewmtx[1].z = 0;
+			viewmtx[2].z = 2 / (near - far);
+			viewmtx[3].z = (near + far) / (near - far);
+		
+			viewmtx[0].w = 0;
+			viewmtx[1].w = 0;
+			viewmtx[2].w = 0;
+			viewmtx[3].w = 1;
+		}
+		else if(viewmode == CUSTOM_PROJ) {
+			viewmtx[0].x = 2 * near / (right - left);
+			viewmtx[1].x = 0;
+			viewmtx[2].x = (left + right) / (left - right);
+			viewmtx[3].x = 0;
+
+			viewmtx[0].y = 0;
+			viewmtx[1].y = 2 * near / (top - bottom);
+			viewmtx[2].y = (bottom + top) / (bottom - top);
+			viewmtx[3].y = 0;
+
+			viewmtx[0].z = 0;
+			viewmtx[1].z = 0;
+			viewmtx[2].z = (far + near) / (near - far);
+			viewmtx[3].z = 2 * far * near / (near - far);
+		
+			viewmtx[0].w = 0;
+			viewmtx[1].w = 0;
+			viewmtx[2].w = -1;
+			viewmtx[3].w = 0;
+		}
+
+		for(int i = 0; i < 4; i++)
+			printf("%10.7f ", viewmtx[i].x);
+		printf("\n");
+
+		for(int i = 0; i < 4; i++)
+			printf("%10.7f ", viewmtx[i].y);
+		printf("\n");
+		
+		for(int i = 0; i < 4; i++)
+			printf("%10.7f ", viewmtx[i].z);
+		printf("\n");
+		
+		for(int i = 0; i < 4; i++)
+			printf("%10.7f ", viewmtx[i].w);
+		printf("\n");
+	}
 	updateView();
+}
+
+void changeSolid(int solid)
+{
+	glPolygonMode(GL_FRONT_AND_BACK, solid);
+}
+
+void translate(int axis)
+{
+	char *axes[] = {"X", "Y", "Z"};
+	printf("Translate %s amount: ", axes[axis]);
+	scanf("%f", &tran[axis]);
+}
+
+void rescale(int axis)
+{
+	char *axes[] = {"X", "Y", "Z"};
+	printf("Scale %s amount: ", axes[axis]);
+	scanf("%f", &scale[axis]);
+}
+
+void reshear(enum shearplanes plane)
+{
+	char *planes[] = {"X by Y",
+										"X by Z",
+										"Y by X",
+										"Y by Z",
+										"Z by X",
+										"Z by Y"};
+	printf("Shear %s amount: ", planes[plane]);
+	float amount;
+	scanf("%f", &amount);
+	switch(plane) {
+	case XYPLANE:
+		shearmtx[1].x = amount;
+		break;
+	case XZPLANE:
+		shearmtx[2].x = amount;
+		break;
+	case YXPLANE:
+		shearmtx[0].y = amount;
+		break;
+	case YZPLANE:
+		shearmtx[1].y = amount;
+		break;
+	case ZXPLANE:
+		shearmtx[0].z = amount;
+		break;
+	case ZYPLANE:
+		shearmtx[1].z = amount;
+		break;
+	}
 }
 
 void nil(int n) {}
 
-int main(int argc, char **argv)
-{
-	polymode = GL_POLYGON;
-	axis = false;
+void resetHouse(void) {
 	rspeedx = 0;
 	rspeedy = 0;
 	rspeedz = 0;
+	
 	rcurx = 0;
 	rcury = 0;
 	rcurz = 0;
+	
+	tran[0] = 5.0;
+	tran[1] = 0;
+	tran[2] = 0;
+	
+	scale[0] = 1.0;
+	scale[1] = 1.0;
+	scale[2] = 1.0;
+	
+	shearmtx[0] = (struct vector){1.0f, 0.0f, 0.0f, 0.0f};
+	shearmtx[1] = (struct vector){0.0f, 1.0f, 0.0f, 0.0f};
+	shearmtx[2] = (struct vector){0.0f, 0.0f, 1.0f, 0.0f};
+	shearmtx[3] = (struct vector){0.0f, 0.0f, 0.0f, 1.0f};
+}
+
+void initglobs(void) {
+	axis = false;
+
 	viewwidth = 500;
 	viewheight = 500;
-	tranx = 5.0;
-	trany = 0;
-	tranz = 0;
+	
+	resetHouse();
+}
 
+int main(int argc, char **argv)
+{
+	initglobs();
 	glutInit(&argc, argv);
 	glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGBA | GLUT_DEPTH);
 	glutInitWindowPosition(10, 10);
@@ -291,11 +518,47 @@ int main(int argc, char **argv)
 	glutKeyboardFunc(keypress);
 	glutTimerFunc(REFRESHMS, timer, 0);
 
-	int view, solid, axes, trans;
+	int view, solid, axes, trans, mult, shear;
 	view = glutCreateMenu((void (*)(int))&changeView);
 	glutAddMenuEntry("Perspective", PERSPECTIVE);
 	glutAddMenuEntry("Orthographic", ORTHOGRAPH);
+	glutAddMenuEntry("Custom Orthographic", CUSTOM_ORTHO);
+	glutAddMenuEntry("Custom Projection", CUSTOM_PROJ);
 
+	solid = glutCreateMenu((void (*)(int))&changeSolid);
+	glutAddMenuEntry("Solid", GL_FILL);
+	glutAddMenuEntry("Wireframe", GL_LINE);
+
+	axes = glutCreateMenu(&showAxes);
+	glutAddMenuEntry("On", true);
+	glutAddMenuEntry("Off", false);
+	glutAddMenuEntry("Toggle", -1);
+
+	trans = glutCreateMenu((void (*)(int))&translate);
+	glutAddMenuEntry("X", 0);
+	glutAddMenuEntry("Y", 1);
+	glutAddMenuEntry("Z", 2);
+
+	mult = glutCreateMenu((void (*)(int))&rescale);
+	glutAddMenuEntry("X", 0);
+	glutAddMenuEntry("Y", 1);
+	glutAddMenuEntry("Z", 2);
+
+	shear = glutCreateMenu((void (*)(int))reshear);
+	glutAddMenuEntry("Shear X by Y", XYPLANE);
+	glutAddMenuEntry("Shear X by Z", XZPLANE);
+	glutAddMenuEntry("Shear Y by X", YXPLANE);
+	glutAddMenuEntry("Shear Y by Z", YZPLANE);
+	glutAddMenuEntry("Shear Z by X", ZXPLANE);
+	glutAddMenuEntry("Shear Z by Y", ZYPLANE);
+
+	glutCreateMenu(&nil);
+	glutAddSubMenu("View", view);
+	glutAddSubMenu("Polygon Fill", solid);
+	glutAddSubMenu("Show Axes", axes);
+	glutAddSubMenu("Translate", trans);
+	glutAddSubMenu("Scale", mult);
+	glutAddSubMenu("Shear", shear);
 	glutAttachMenu(GLUT_MIDDLE_BUTTON);
 
 	glPointSize(5);
