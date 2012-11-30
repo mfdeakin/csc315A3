@@ -1,4 +1,6 @@
 
+#include "pngloader.h"
+
 #include <math.h>
 #include <ctype.h>
 #include <stdbool.h>
@@ -27,7 +29,8 @@ enum view {
 	PERSPECTIVE,
 	ORTHOGRAPH,
 	CUSTOM_ORTHO,
-	CUSTOM_PROJ
+	CUSTOM_PROJ,
+	CUSTOM_MTX
 } viewmode;
 
 struct vector {
@@ -49,18 +52,24 @@ float rspeedx, rspeedy, rspeedz,
 bool axis;
 unsigned viewwidth, viewheight;
 
+struct image *bricks;
+
 void drawAxes(void);
+void drawMatrixType(void);
 void drawHouse(void);
 void resetHouse(void);
+void updateView(void);
 void initglobs(void);
 void display(void);
 void mpress(int btn, int state, int x, int y);
 void resize(GLsizei width, GLsizei height);
 void keypress(unsigned char key, int x, int y);
 void timer(int val);
+void createMenus(void);
 
 void timer(int val)
 {
+	/* Updates the animation and the scene */
 	rcurx += (float)rspeedx * 18.0f / PI / 30.0f;
 	if(rcurx > 360)
 		rcurx -= 360;
@@ -82,9 +91,26 @@ void timer(int val)
 
 void display(void)
 {
+	/* Draw the current scene */
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+	/* Save our projection matrix so we don't recalculate it */
+	glMatrixMode(GL_PROJECTION);
+	glPushMatrix();
+	glLoadIdentity();
+
 	glMatrixMode(GL_MODELVIEW);
 	glLoadIdentity();
+
+	/* Draw our HUD contents */
+	drawMatrixType();
+
+	/* Restore our matrix */
+	glMatrixMode(GL_PROJECTION);
+	glPopMatrix();
+
+	/* Draw the actual 3D stuff */
+	glMatrixMode(GL_MODELVIEW);
  	gluLookAt(-5.0f, 5.0f, 4.0f,
 						0.0f, 0.0f, 0.0f,
 						0.0f, 0.0f, 1.0f);
@@ -99,6 +125,23 @@ void display(void)
 	drawHouse();
 	glFlush();
  	glutSwapBuffers();
+}
+
+void drawMatrixType(void)
+{
+	glPushMatrix();
+	glLoadIdentity();
+	glTranslatef(0.4, 0.9, -1.0f);
+	glColor3f(1.0f, 1.0f, 1.0f);
+	glRasterPos2i(0, 0);
+	char *mtxname[] = {"Projection",
+										 "Orthographic",
+										 "Custom Ortho",
+										 "Custom Proj",
+										 "Custom Matrix",};
+	for(int i = 0; mtxname[viewmode][i]; i++)
+		glutBitmapCharacter(GLUT_BITMAP_9_BY_15, mtxname[viewmode][i]);
+	glPopMatrix();
 }
 
 void drawAxes(void)
@@ -124,13 +167,6 @@ void drawAxes(void)
 	glTranslatef(0.0f, -MAXY * tranRatio, MAXZ * tranRatio);
 	glRasterPos2i(0, 0);
 	glutBitmapCharacter(GLUT_BITMAP_9_BY_15, 'Z');
-
-	glLoadIdentity();
-	glTranslatef(MINX * tranRatio, MAXY * tranRatio, 0.0f);
-	glRasterPos2i(0, 0);
-	char *mtxname[] = {"Projection", "Orthographic", "Custom"};
-	for(int i = 0; mtxname[viewmode][i]; i++)
-		glutBitmapCharacter(GLUT_BITMAP_9_BY_15, mtxname[viewmode][i]);
 	glPopMatrix();
 }
 
@@ -190,13 +226,66 @@ void drawHouse(void)
 		{0.7f, 1.0f, 0.1f},
 		{0.1f, 0.5f, 0.8f},
 		{0.5f, 0.1f, 0.8f}};
+
+	/* The image loader I've got is bad,
+	 * so I'm cheating and not using the
+	 * whole image.
+	 * I'm exploiting it to make the roof
+	 * a different color, too. 
+	 * I will fix this bug eventually. */
+	struct {
+		float u, v;
+	} uvmap[FACECOUNT][5] = {
+		//Closest 5 vertex side
+		{{0.15f, 0.3f},
+		 {0.0f, 0.225f},
+		 {0.0f, 0.0f},
+		 {0.3f, 0.0f},
+		 {0.3f, 0.225f}},
+		//Farthest 5 vertex side
+		{{0.15f, 0.3f},
+		 {0.0f, 0.225f},
+		 {0.0f, 0.0f},
+		 {0.3f, 0.0f},
+		 {0.0f, 0.225f}},
+		//Floor
+		{{0.0f, 0.0f},
+		 {0.3f, 0.0f},
+		 {0.3f, 0.3f},
+		 {0.0f, 0.3f}},
+		//Closest 4 vertex side
+		{{0.3f, 0.0f},
+		 {0.3f, 0.1f},
+		 {0.0f, 0.1f},
+		 {0.0f, 0.0f}},
+		//Farthest 4 vertex side
+		{{0.3f, 0.0f},
+		 {0.3f, 0.1f},
+		 {0.0f, 0.1f},
+		 {0.0f, 0.0f}},
+		//Closest roof
+		{{0.67f, 0.3f},
+		 {1.0f, 0.3f},
+		 {1.0f, 0.0f},
+		 {0.67f, 0.0f}},
+		//Farthest roof
+		{{0.67f, 0.15f},
+		 {1.0f, 0.15f},
+		 {1.0f, 0.0f},
+		 {0.67f, 0.0f}},
+	};
 	unsigned vcount[FACECOUNT] = {5, 5, 4, 4, 4, 4, 4};
 	for(int i = 0; i < FACECOUNT; i++) {
-		glColor3f(colors[i].r,
-							colors[i].g,
-							colors[i].b);
+		if(!bricks || !bricks->texture) {
+			glColor3f(colors[i].r,
+								colors[i].g,
+								colors[i].b);
+		}
 		glBegin(GL_POLYGON);
 		for(int j = 0; j < vcount[i]; j++) {
+			if(bricks && bricks->texture) {
+				glTexCoord2d(uvmap[i][j].u, uvmap[i][j].v);
+			}
 			glVertex3fv((GLfloat *)&vertices[i][j]);
 		}
 		glEnd();
@@ -209,50 +298,31 @@ void updateView()
 	glLoadIdentity();
 	if(viewmode == ORTHOGRAPH) {
 		glOrtho(MINX, MAXX, MINY, MAXY, -5.0f, 30.0f);
-		struct vector v[4];
-		glGetFloatv(GL_PROJECTION_MATRIX, &v);
-		
-		for(int i = 0; i < 4; i++)
-			printf("%10.7f ", v[i].x);
-		printf("\n");
-
-		for(int i = 0; i < 4; i++)
-			printf("%10.7f ", v[i].y);
-		printf("\n");
-		
-		for(int i = 0; i < 4; i++)
-			printf("%10.7f ", v[i].z);
-		printf("\n");
-		
-		for(int i = 0; i < 4; i++)
-			printf("%10.7f ", v[i].w);
-		printf("\n");
-		
 	}
 	else if(viewmode == PERSPECTIVE) {
 		glFrustum(MINX / 10, MAXX / 10, MINY / 10, MAXY / 10, 1.0f, 30.0f);
-		struct vector v[4];
-		glGetFloatv(GL_PROJECTION_MATRIX, &v);
-		
-		for(int i = 0; i < 4; i++)
-			printf("%10.7f ", v[i].x);
-		printf("\n");
-
-		for(int i = 0; i < 4; i++)
-			printf("%10.7f ", v[i].y);
-		printf("\n");
-		
-		for(int i = 0; i < 4; i++)
-			printf("%10.7f ", v[i].z);
-		printf("\n");
-		
-		for(int i = 0; i < 4; i++)
-			printf("%10.7f ", v[i].w);
-		printf("\n");
-		
 	}
 	else
 		glLoadMatrixf((float *)viewmtx);
+	struct vector v[4];
+	glGetFloatv(GL_PROJECTION_MATRIX, (float *)&v);
+	
+	for(int i = 0; i < 4; i++)
+		printf("%10.7f ", v[i].x);
+	printf("\n");
+	
+	for(int i = 0; i < 4; i++)
+		printf("%10.7f ", v[i].y);
+	printf("\n");
+	
+	for(int i = 0; i < 4; i++)
+		printf("%10.7f ", v[i].z);
+	printf("\n");
+	
+	for(int i = 0; i < 4; i++)
+		printf("%10.7f ", v[i].w);
+	printf("\n\n");
+		
 	glMatrixMode(GL_MODELVIEW);
 }
 
@@ -265,6 +335,8 @@ void resize(GLsizei width, GLsizei height)
 void mpress(int btn, int state, int mxp, int myp)
 {
 	if(state == GLUT_DOWN) {
+		/* Scale the coordinates so the viewport *
+		 * can be easily divided into rectangles */
 		float x, y;
 		x = (float)-mxp * 2 / viewwidth + 1;
 		y = (float)-myp * 2 / viewheight + 1;
@@ -397,22 +469,17 @@ void changeView(enum view newmode)
 			viewmtx[2].w = -1;
 			viewmtx[3].w = 0;
 		}
-
+	}
+	else if(viewmode == CUSTOM_MTX) {
+		printf("Enter matrix values (row major order):\n");
 		for(int i = 0; i < 4; i++)
-			printf("%10.7f ", viewmtx[i].x);
-		printf("\n");
-
+			scanf("%f", &viewmtx[i].x);
 		for(int i = 0; i < 4; i++)
-			printf("%10.7f ", viewmtx[i].y);
-		printf("\n");
-		
+			scanf("%f", &viewmtx[i].y);
 		for(int i = 0; i < 4; i++)
-			printf("%10.7f ", viewmtx[i].z);
-		printf("\n");
-		
+			scanf("%f", &viewmtx[i].z);
 		for(int i = 0; i < 4; i++)
-			printf("%10.7f ", viewmtx[i].w);
-		printf("\n");
+			scanf("%f", &viewmtx[i].w);
 	}
 	updateView();
 }
@@ -469,9 +536,19 @@ void reshear(enum shearplanes plane)
 	}
 }
 
+void quit(int n)
+{
+	glDeleteTextures(1, &bricks->texture);
+	free(bricks->data);
+	free(bricks);
+	exit(0);
+}
+
+/* Just for glut menus */
 void nil(int n) {}
 
-void resetHouse(void) {
+void resetHouse(void)
+{
 	rspeedx = 0;
 	rspeedy = 0;
 	rspeedz = 0;
@@ -501,6 +578,11 @@ void initglobs(void) {
 	viewheight = 500;
 	
 	resetHouse();
+
+	bricks = readPNG("bricks.png");
+	if(!bricks) {
+		printf("Could not load bricks.png!\n");
+	}
 }
 
 int main(int argc, char **argv)
@@ -518,12 +600,48 @@ int main(int argc, char **argv)
 	glutKeyboardFunc(keypress);
 	glutTimerFunc(REFRESHMS, timer, 0);
 
-	int view, solid, axes, trans, mult, shear;
+	createMenus();
+
+	glPointSize(5);
+	glEnable(GL_DEPTH_TEST);
+	glEnable(GL_TEXTURE_2D);
+	glTexParameterf(GL_TEXTURE_2D,
+									GL_TEXTURE_MIN_FILTER,
+									GL_LINEAR_MIPMAP_NEAREST);
+	glTexParameterf(GL_TEXTURE_2D,
+									GL_TEXTURE_MAG_FILTER,
+									GL_LINEAR);
+	glTexParameterf(GL_TEXTURE_2D,
+									GL_TEXTURE_WRAP_S,
+									GL_REPEAT);
+	glTexParameterf(GL_TEXTURE_2D,
+									GL_TEXTURE_WRAP_T,
+									GL_REPEAT);
+	glTexEnvf(GL_TEXTURE_ENV,
+						GL_TEXTURE_ENV_MODE,
+						GL_MODULATE);
+	if(bricks) {
+ 		createTexture(bricks);
+		printf("Texture: %d\n", bricks->texture);
+	}
+	glDisable(GL_CULL_FACE);
+	glutMainLoop();
+	/* Cleanup */
+	glDeleteTextures(1, &bricks->texture);
+	free(bricks->data);
+	free(bricks);
+  return 0;
+}
+
+void createMenus(void)
+{
+	int view, solid, axes, trans, mult, shear, reset, quitmenu;
 	view = glutCreateMenu((void (*)(int))&changeView);
 	glutAddMenuEntry("Perspective", PERSPECTIVE);
 	glutAddMenuEntry("Orthographic", ORTHOGRAPH);
 	glutAddMenuEntry("Custom Orthographic", CUSTOM_ORTHO);
 	glutAddMenuEntry("Custom Projection", CUSTOM_PROJ);
+	glutAddMenuEntry("Custom Matrix", CUSTOM_MTX);
 
 	solid = glutCreateMenu((void (*)(int))&changeSolid);
 	glutAddMenuEntry("Solid", GL_FILL);
@@ -552,6 +670,13 @@ int main(int argc, char **argv)
 	glutAddMenuEntry("Shear Z by X", ZXPLANE);
 	glutAddMenuEntry("Shear Z by Y", ZYPLANE);
 
+	/* I normally don't exploit function casting like this, I promise */
+	reset = glutCreateMenu((void (*)(int))resetHouse);
+	glutAddMenuEntry("Reset", 0);
+
+	quitmenu = glutCreateMenu(quit);
+	glutAddMenuEntry("Exit", 0);
+
 	glutCreateMenu(&nil);
 	glutAddSubMenu("View", view);
 	glutAddSubMenu("Polygon Fill", solid);
@@ -559,11 +684,7 @@ int main(int argc, char **argv)
 	glutAddSubMenu("Translate", trans);
 	glutAddSubMenu("Scale", mult);
 	glutAddSubMenu("Shear", shear);
+	glutAddSubMenu("Reset", reset);
+	glutAddSubMenu("Quit", quitmenu);
 	glutAttachMenu(GLUT_MIDDLE_BUTTON);
-
-	glPointSize(5);
-	glEnable(GL_DEPTH_TEST);
-	glDisable(GL_CULL_FACE);
-	glutMainLoop();
-  return 0;
 }
